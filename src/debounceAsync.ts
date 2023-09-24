@@ -1,7 +1,7 @@
 // This file is part of HFS - Copyright 2021-2023, Massimo Melina <a@rejetto.com> - License https://www.gnu.org/licenses/gpl-3.0.txt
 
 // like lodash.debounce, but also avoids async invocations to overlap
-export default function debounceAsync<Cancelable extends boolean = false, A extends unknown[] = unknown[], R = unknown>(
+export function debounceAsync<Cancelable extends boolean = false, A extends unknown[] = unknown[], R = unknown>(
     callback: (...args: A) => Promise<R>,
     wait: number=100,
     options: { leading?: boolean, maxWait?:number, retain?: number, retainFailure?: number, cancelable?: Cancelable }={}
@@ -66,3 +66,15 @@ export default function debounceAsync<Cancelable extends boolean = false, A exte
     }
 }
 
+export function batcher<T extends any[]>(fn: (args: T[]) => unknown) {
+    let q: T[] = []
+    const debounced = debounceAsync(async () => {
+        const ret = fn(q)
+        q = []
+        return ret
+    })
+    return (...args: T) => {
+        q.push(args)
+        return debounced()
+    }
+}
