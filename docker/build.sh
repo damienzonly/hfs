@@ -4,4 +4,15 @@ cd ..
 docker system prune -f
 docker rmi hfs
 docker system prune -f
-docker build --build-arg="VERSION=$version" --no-cache -t rejetto/hfs:$version -f docker/Dockerfile .
+docker buildx create --name bld --use
+docker buildx inspect bld --bootstrap
+docker buildx build \
+    --build-arg VERSION="$version" \
+    --platform linux/amd64,linux/arm64 \
+    -t rejetto/hfs:$version \
+    -t rejetto/hfs:latest \
+    -f docker/Dockerfile \
+    --push \
+    .
+docker buildx rm bld
+
