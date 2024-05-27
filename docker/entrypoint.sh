@@ -5,8 +5,6 @@ initfile="$root/init"
 bin="hfs@${VERSION}"
 args="--cwd $root "
 
-
-set -x
 if [ ! -f "$conf" ] ; then
     mkdir -p "$root"
     touch "$conf"
@@ -20,5 +18,12 @@ fi
 if [ ! -z "$HTTPS_PORT" ] ; then
     args="$args --https-port $HTTPS_PORT "
 fi
+if [ ! -z "$CERT" ] ; then
+    args="$args --cert $CERT "
+fi
+if [ ! -z "$PRIVATE_KEY" ] ; then
+    args="$args --private-key $PRIVATE_KEY "
+fi
+
 
 npx $bin $args
