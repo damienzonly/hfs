@@ -1,9 +1,9 @@
 #!/bin/bash
-root="$HOME/.hfs"
+root="/app/hfs_data/.hfs"
 conf="$root/config.yaml"
 initfile="$root/init"
 bin="hfs@${VERSION}"
-args=
+args="--cwd $root "
 
 
 set -x
@@ -12,13 +12,13 @@ if [ ! -f "$conf" ] ; then
     touch "$conf"
 fi
 if [ ! -z "$ADMIN_PASSWORD" ] ; then
-    args=" $args --create-admin $ADMIN_PASSWORD"
+    args="$args --create-admin $ADMIN_PASSWORD "
 fi
 if [ ! -z "$HTTP_PORT" ] ; then
-    args=" $args --port $HTTP_PORT"
+    args="$args --port $HTTP_PORT "
 fi
 if [ ! -z "$HTTPS_PORT" ] ; then
-    args=" $args --https-port $HTTPS_PORT"
+    args="$args --https-port $HTTPS_PORT "
 fi
 
 npx $bin $args
