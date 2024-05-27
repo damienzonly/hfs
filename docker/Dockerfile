@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20-bullseye
 WORKDIR /app
 ARG VERSION
 ENV VERSION $VERSION
