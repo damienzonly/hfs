@@ -2,7 +2,7 @@ version: '3'
 
 services:
   hfs:
-    image: hfs
+    image: rejetto/hfs:0.52.7
     volumes:
       - ./hfs_data:/app/hfs_data # for hfs conf persistence
       - ./user_data:/mnt/abc # for your files
