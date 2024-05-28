@@ -26,5 +26,5 @@ services:
       - CERT=/path/to/cert # optional
       - PRIVATE_KEY=/path/to/pkey # optional
     ports:
-      - 9000:8001
+      - 9000:8000
 ```
