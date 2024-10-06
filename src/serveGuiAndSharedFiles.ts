@@ -1,13 +1,13 @@
 import Koa from 'koa'
 import { basename, dirname } from 'path'
-import { getNodeName, nodeIsDirectory, statusCodeForMissingPerm, urlToNode, vfs, VfsNode, walkNode } from './vfs'
+import { getNodeName, statusCodeForMissingPerm, nodeIsDirectory, nodeIsLink, urlToNode, vfs, VfsNode, walkNode } from './vfs'
 import { sendErrorPage } from './errorPages'
 import { ADMIN_URI, FRONTEND_URI, HTTP_BAD_REQUEST, HTTP_FORBIDDEN, HTTP_METHOD_NOT_ALLOWED, HTTP_NOT_FOUND,
     HTTP_UNAUTHORIZED, HTTP_SERVER_ERROR, HTTP_OK } from './cross-const'
 import { uploadWriter } from './upload'
 import { pipeline } from 'stream/promises'
 import formidable from 'formidable'
-import { Writable } from 'stream'
+import { PassThrough, Writable } from 'stream'
 import { serveFile, serveFileNode } from './serveFile'
 import { BUILD_TIMESTAMP, DEV, VERSION } from './const'
 import { zipStreamFromFolder } from './zip'
@@ -15,7 +15,8 @@ import { allowAdmin, favicon } from './adminApis'
 import { serveGuiFiles } from './serveGuiFiles'
 import mount from 'koa-mount'
 import { baseUrl } from './listen'
-import { asyncGeneratorToReadable, deleteNode, filterMapGenerator, pathEncode, try_ } from './misc'
+import { asyncGeneratorToReadable, deleteNode, filterMapGenerator, pathEncode, prefix, try_ } from './misc'
+import { stat } from 'fs/promises'
 import { basicWeb, detectBasicAgent } from './basicWeb'
 
 const serveFrontendFiles = serveGuiFiles(process.env.FRONTEND_PROXY, FRONTEND_URI)
@@ -85,16 +86,14 @@ export const serveGuiAndSharedFiles: Koa.Middleware = async (ctx, next) => {
     }
     if (ctx.method === 'DELETE') {
         const res = await deleteNode(ctx, node, ctx.path)
-        if (typeof res === 'number')
-            return ctx.status = res
         if (res instanceof Error) {
             ctx.body = res.message || String(res)
             return ctx.status = HTTP_SERVER_ERROR
         }
-        if (res)
-            return ctx.status = HTTP_OK
-        return
+        if (res) return
+        return ctx.status = HTTP_OK
     }
+    if (await webdav(ctx, node)) return
     const { get } = ctx.query
     if (node.default && path.endsWith('/') && !get) { // final/ needed on browser to make resource urls correctly with html pages
         const found = await urlToNode(node.default, ctx, node)
@@ -154,4 +153,67 @@ declare module "koa" {
         uploadPath?: string // current one
         uploads?: string[] // in case of request with potentially multiple uploads (POST), we register all filenames (no full path)
     }
+}
+
+async function webdav(ctx: Koa.Context, node: VfsNode) {
+    ctx.set('DAV', '1,2')
+    ctx.set('Allow', 'PROPPATCH,PROPFIND,OPTIONS,DELETE,UNLOCK,COPY,LOCK,MOVE')
+    ctx.set('WWW-Authenticate', `Basic realm="${pathEncode(ctx.path)}"`)
+    isWebDav(Boolean(ctx.get('user-agent').match(/webdav/i)))
+    if (ctx.method === 'OPTIONS') {
+        isWebDav()
+        ctx.body = ''
+        return true
+    }
+    if (ctx.method === 'PROPFIND') {
+        isWebDav()
+        //console.debug(ctx.req.headers, await stream2string(ctx.req))
+        const d = ctx.get('depth')
+        const isList = d !== '0'
+        if (statusCodeForMissingPerm(node, isList ? 'can_list' : 'can_see', ctx))
+            return true
+        ctx.type = 'xml'
+        ctx.status = 207
+        let {path} = ctx
+        if (!path.endsWith('/'))
+            path += '/'
+        const res = ctx.body = new PassThrough({ encoding: 'utf8' })
+        res.write(`<?xml version="1.0" encoding="utf-8" ?><multistatus xmlns:D="DAV:">`)
+        await sendEntry(node)
+        if (isList) {
+            for await (const n of walkNode(node, { ctx, depth: Number(d) - 1 }))
+                await sendEntry(n, true)
+        }
+        res.write(`</multistatus>`)
+        res.end()
+        return true
+
+        async function sendEntry(node: VfsNode, append=false) {
+            if (nodeIsLink(node)) return
+            const name = getNodeName(node)
+            const isDir = await nodeIsDirectory(node)
+            const st = node.stats ??= node.source ? await stat(node.source) : undefined
+            res.write(`<response>
+              <href>${path + (append ? pathEncode(name, true) + (isDir ? '/' : '') : '')}</href>
+              <propstat>
+                <status>HTTP/1.1 200 OK</status>
+                <prop>
+                    ${prefix('<getlastmodified>', (st?.mtime as any)?.toGMTString(), '</getlastmodified>')}
+                    ${prefix('<creationdate>', (st?.birthtime || st?.ctime)?.toISOString().replace(/\..*/, '-00:00'), '</creationdate>')}
+                    ${isDir ? '<resourcetype><collection/></resourcetype>' 
+                        : `<resourcetype/><getcontentlength>${st?.size}</getcontentlength>`}
+                </prop>
+              </propstat>
+              </response>
+            `)
+        }
+    }
+
+    function isWebDav(x=true) {
+        if (ctx.session)
+            ctx.session.webdav ||= x
+        if (x && !ctx.headerSent)
+            ctx.set('WWW-Authenticate', 'Basic')
+    }
+
 }

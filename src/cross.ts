@@ -400,8 +400,8 @@ export async function promiseBestEffort<T>(promises: Promise<T>[]) {
 }
 
 // encode paths leaving / separator unencoded (not like encodeURIComponent), but still encode #
-export function pathEncode(s: string) {
-    return s.replace(/[:&#'"% ?\\]/g, encodeURIComponent)
+export function pathEncode(s: string, all=false) {
+    return (all ? encodeURI(s) : s).replace(all ? /#/g : /[:&#'"% ?\\]/g, encodeURIComponent)
 }
 //unused function pathDecode(s: string) { return decodeURI(s).replace(/%23/g, '#') }
 
