@@ -78,19 +78,6 @@ export const frontEndApis: ApiHandlers = {
         }
     },
 
-    async delete({ uri }, ctx) {
-        apiAssertTypes({ string: { uri } })
-        const node = await urlToNode(uri, ctx)
-        if (!node)
-            throw new ApiError(HTTP_NOT_FOUND)
-        const res = await deleteNode(ctx, node, uri)
-        if (typeof res === 'number')
-            throw new ApiError(res)
-        if (res instanceof Error)
-            throw new ApiError(HTTP_SERVER_ERROR, res)
-        return res && {}
-    },
-
     async rename({ uri, dest }, ctx) {
         apiAssertTypes({ string: { uri, dest } })
         ctx.logExtra(null, { target: decodeURI(uri), destination: decodeURI(dest) })

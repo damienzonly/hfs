@@ -157,7 +157,6 @@ export async function deleteNode(ctx: Koa.Context, node: VfsNode, uri: string) {
         ctx.logExtra(null, { target: decodeURI(uri) })
         await rm(source, { recursive: true })
         void setCommentFor(source, '')
-        return true
     } catch (e: any) {
         return e
     }
