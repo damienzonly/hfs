@@ -15,6 +15,7 @@ export const PREVIOUS_TAG = 'previous'
 export const ALLOW_SESSION_IP_CHANGE = 'allow_session_ip_change'
 
 export const HTTP_OK = 200
+export const HTTP_CREATED = 201
 export const HTTP_NO_CONTENT = 204
 export const HTTP_PARTIAL_CONTENT = 206
 export const HTTP_MOVED_PERMANENTLY = 301
