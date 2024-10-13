@@ -540,4 +540,7 @@ const BROWSERS = {
     PS: /playstation/i,
     Xbox: /xbox/i,
     UC: /UCBrowser/i,
+    Finder: /WebDAVFS.+Darwin/,
+    Cyberduck: /^Cyberduck/,
+    ForkLift: /^ForkLift/,
 }

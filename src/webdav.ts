@@ -9,7 +9,8 @@ import {
 import { PassThrough } from 'stream'
 import { mkdir, stat } from 'fs/promises'
 import { isValidFileName } from './misc'
-import { join } from 'path'
+import { basename, dirname, join } from 'path'
+import { requestedRename } from './frontEndApis'
 
 export async function handledWebdav(ctx: Koa.Context, node?: VfsNode) {
     ctx.set('DAV', '1,2')
@@ -39,6 +40,21 @@ export async function handledWebdav(ctx: Koa.Context, node?: VfsNode) {
         catch(e:any) {
             return ctx.status = HTTP_SERVER_ERROR
         }
+    }
+    if (ctx.method === 'MOVE') {
+        if (!node) return
+        let dest = ctx.get('destination')
+        const i = dest.indexOf('//')
+        if (i >= 0)
+            dest = dest.slice(dest.indexOf('/', i + 2))
+        if (dirname(ctx.path) === dirname(dest)) // rename
+            try {
+                requestedRename(node, basename(dest), ctx)
+                return ctx.status = HTTP_CREATED
+            }
+            catch(e:any) {
+                return ctx.status = e.status || HTTP_SERVER_ERROR
+            }
     }
     if (ctx.method === 'PROPFIND') {
         if (!node) return
