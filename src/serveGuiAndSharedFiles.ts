@@ -53,6 +53,7 @@ export const serveGuiAndSharedFiles: Koa.Middleware = async (ctx, next) => {
         ctx.state.considerAsGui = true
         return serveFile(ctx, join(plugin?.folder || '', ICONS_FOLDER, file), MIME_AUTO)
     }
+    if (await handledWebdav(ctx)) return
     if (ctx.method === 'PUT') { // curl -T file url/
         const decPath = decodeURIComponent(path)
         let rest = basename(decPath)
@@ -76,7 +77,6 @@ export const serveGuiAndSharedFiles: Koa.Middleware = async (ctx, next) => {
     if (/^\/favicon.ico(\??.*)/.test(ctx.originalUrl) && favicon.get()) // originalUrl to not be subject to changes (vhosting plugin)
         return serveFile(ctx, favicon.get())
     let node = await urlToNode(path, ctx)
-    if (await handledWebdav(ctx, node)) return
     if (!node)
         return sendErrorPage(ctx, HTTP_NOT_FOUND)
     if (ctx.method === 'POST') { // curl -F upload=@file url/

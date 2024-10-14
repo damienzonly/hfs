@@ -83,7 +83,7 @@ export const frontEndApis: ApiHandlers = {
         ctx.logExtra(null, { target: decodeURI(uri), destination: decodeURI(dest) })
         if (dest.includes('/') || dirTraversal(dest))
             throw new ApiError(HTTP_FORBIDDEN)
-        requestedRename(await urlToNode(uri, ctx), dest, ctx)
+        await requestedRename(await urlToNode(uri, ctx), dest, ctx)
         return {}
     },
 

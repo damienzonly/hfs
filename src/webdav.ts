@@ -3,30 +3,54 @@ import {
     getNodeName, nodeIsDirectory, nodeIsLink, statusCodeForMissingPerm, urlToNode, vfs, VfsNode, walkNode
 } from './vfs'
 import {
-    HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_METHOD_NOT_ALLOWED, HTTP_NOT_FOUND, HTTP_SERVER_ERROR,
-    pathEncode, prefix
+    HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_METHOD_NOT_ALLOWED, HTTP_NO_CONTENT, HTTP_NOT_FOUND, HTTP_SERVER_ERROR,
+    enforceFinal, pathEncode, prefix
 } from './cross'
 import { PassThrough } from 'stream'
-import { mkdir, stat } from 'fs/promises'
+import { mkdir, rm, stat } from 'fs/promises'
 import { isValidFileName } from './misc'
 import { basename, dirname, join } from 'path'
 import { requestedRename } from './frontEndApis'
+import { randomUUID } from 'node:crypto'
 
-export async function handledWebdav(ctx: Koa.Context, node?: VfsNode) {
-    ctx.set('DAV', '1,2')
-    ctx.set('Allow', 'PROPPATCH,PROPFIND,OPTIONS,DELETE,UNLOCK,COPY,LOCK,MOVE')
-    ctx.set('WWW-Authenticate', `Basic realm="${pathEncode(ctx.path)}"`)
-    isWebDav(Boolean(ctx.get('user-agent').match(/webdav/i)))
+const TOKEN_HEADER = 'lock-token'
+
+const canOverwrite = new Set()
+const locks = new Map<string, { token: string, timeout: NodeJS.Timeout }>()
+
+export async function handledWebdav(ctx: Koa.Context) {
+    const {path} = ctx
+
     if (ctx.method === 'OPTIONS') {
         isWebDav()
         ctx.body = ''
         return true
     }
+    if (ctx.method === 'PUT') {
+        // Finder first creates an empty file, probably to test if upload is possible, the wants to overwrite it.
+        // You may not have permission for deletion, and uploads get renamed, so we give it special permission for a few seconds.
+        const x = ctx.get('x-expected-entity-length') // field used by Finder's webdav on actual upload, after
+        if (!x && !ctx.length) {
+            canOverwrite.add(path)
+            setTimeout(() => canOverwrite.delete(path), 10_000) // grace period
+        }
+        else if (canOverwrite.has(path)) {
+            canOverwrite.delete(path)
+            const node = await urlToNode(path, ctx)
+            if (node?.source)
+                await rm(node.source).catch(() => {})
+        }
+        if (x && ctx.length === undefined) // missing length can make PUT fail
+            ctx.req.headers['content-length'] = x
+        return // default handling
+    }
     if (ctx.method === 'MKCOL') {
+        isWebDav()
+        const node = await urlToNode(path, ctx)
         if (node)
             return ctx.status = HTTP_METHOD_NOT_ALLOWED
         let name = ''
-        const parentNode = await urlToNode(ctx.path, ctx, vfs, v => name = v)
+        const parentNode = await urlToNode(path, ctx, vfs, v => name = v)
         if (!parentNode)
             return ctx.status = HTTP_NOT_FOUND
         if (!isValidFileName(name))
@@ -42,35 +66,66 @@ export async function handledWebdav(ctx: Koa.Context, node?: VfsNode) {
         }
     }
     if (ctx.method === 'MOVE') {
+        isWebDav()
+        const node = await urlToNode(path, ctx)
         if (!node) return
         let dest = ctx.get('destination')
         const i = dest.indexOf('//')
         if (i >= 0)
             dest = dest.slice(dest.indexOf('/', i + 2))
-        if (dirname(ctx.path) === dirname(dest)) // rename
+        if (dirname(path) === dirname(dest)) // rename
             try {
-                requestedRename(node, basename(dest), ctx)
+                await requestedRename(node, basename(dest), ctx)
                 return ctx.status = HTTP_CREATED
             }
             catch(e:any) {
                 return ctx.status = e.status || HTTP_SERVER_ERROR
             }
+        return
+    }
+    if (ctx.method === 'UNLOCK') {
+        isWebDav()
+        const x = ctx.get(TOKEN_HEADER).slice(1,-1)
+        const lock = locks.get(path)
+        if (x !== lock?.token)
+            return ctx.status = HTTP_BAD_REQUEST
+        clearTimeout(lock.timeout)
+        locks.delete(path)
+        ctx.set(TOKEN_HEADER, x)
+        return ctx.status = HTTP_NO_CONTENT
+    }
+    if (ctx.method === 'LOCK') {
+        isWebDav()
+        if (locks.has(path))
+            return ctx.status = 423
+        const token = 'urn:uuid:' + randomUUID()
+        ctx.set(TOKEN_HEADER, token)
+        const seconds = 3600
+        const timeout = setTimeout(() => locks.delete(path), seconds)
+        locks.set(path, { token, timeout })
+        ctx.body = `<?xml version="1.0" encoding="utf-8"?><prop xmlns="DAV:"><lockdiscovery><activelock>
+            <locktype><write/></locktype>
+            <lockscope><exclusive/></lockscope>
+            <locktoken><href>${token}</href></locktoken>
+            <lockroot><href>${path}</href></lockroot>
+            <depth>0</depth>
+            <timeout>Second-${seconds}</timeout>
+        </activelock></lockdiscovery></prop>`
+        return true
     }
     if (ctx.method === 'PROPFIND') {
-        if (!node) return
         isWebDav()
-        //console.debug(ctx.req.headers, await stream2string(ctx.req))
+        const node = await urlToNode(path, ctx)
+        if (!node) return
         const d = ctx.get('depth')
         const isList = d !== '0'
         if (statusCodeForMissingPerm(node, isList ? 'can_list' : 'can_see', ctx))
             return true
         ctx.type = 'xml'
         ctx.status = 207
-        let {path} = ctx
-        if (!path.endsWith('/'))
-            path += '/'
+        const pathSlash = enforceFinal('/', path)
         const res = ctx.body = new PassThrough({ encoding: 'utf8' })
-        res.write(`<?xml version="1.0" encoding="utf-8" ?><multistatus xmlns:D="DAV:">`)
+        res.write(`<?xml version="1.0" encoding="utf-8" ?><multistatus xmlns="DAV:">`)
         await sendEntry(node)
         if (isList) {
             for await (const n of walkNode(node, { ctx, depth: Number(d) - 1 }))
@@ -86,7 +141,7 @@ export async function handledWebdav(ctx: Koa.Context, node?: VfsNode) {
             const isDir = await nodeIsDirectory(node)
             const st = node.stats ??= node.source ? await stat(node.source) : undefined
             res.write(`<response>
-              <href>${path + (append ? pathEncode(name, true) + (isDir ? '/' : '') : '')}</href>
+              <href>${pathSlash + (append ? pathEncode(name, true) + (isDir ? '/' : '') : '')}</href>
               <propstat>
                 <status>HTTP/1.1 200 OK</status>
                 <prop>
@@ -99,13 +154,15 @@ export async function handledWebdav(ctx: Koa.Context, node?: VfsNode) {
               </response>
             `)
         }
+
+        //isWebDav(Boolean(ctx.get('user-agent').match(/webdav/i)))
     }
 
     function isWebDav(x=true) {
-        if (ctx.session)
-            ctx.session.webdav ||= x
-        if (x && !ctx.headerSent)
-            ctx.set('WWW-Authenticate', 'Basic')
+        if (!x || ctx.headerSent) return
+        ctx.set('DAV', '1,2')
+        ctx.set('Allow', 'PROPFIND,OPTIONS,DELETE,MOVE,LOCK,UNLOCK')
+        ctx.set('WWW-Authenticate', `Basic realm="${pathEncode(path)}"`)
     }
 
 }
