@@ -293,7 +293,10 @@ export async function waitFor<T>(cb: ()=> Promisable<T>, { interval=200, timeout
     }
 }
 
-export function getOrSet<T>(o: Record<string,T>, k:string, creator:()=>T): T {
+export function getOrSet<T>(o: Record<string,T> | Map<string, T>, k:string, creator:()=>T): T {
+    if (o instanceof Map)
+        return o.get(k)
+            || with_(creator(), x => o.set(k, x) && x)
     return k in o ? o[k]!
         : (o[k] = creator())
 }
@@ -434,7 +437,7 @@ export async function promiseBestEffort<T>(promises: Promise<T>[]) {
 
 // encode paths leaving / separator unencoded (not like encodeURIComponent), but still encode #
 export function pathEncode(s: string, all=false) {
-    return (all ? encodeURI(s) : s).replace(all ? /#/g : /[:&#'"% ?\\]/g, escape) // escape() is not utf8, but we are encoding only ascii chars
+    return all ? encodeURI(s).replace(/#/g, escape) : s.replace(/[:&#'"% ?\\]/g, escape) // escape() is not utf8, but we are encoding only ascii chars
 }
 //unused function pathDecode(s: string) { return decodeURI(s).replace(/%23/g, '#') }
 

@@ -4,7 +4,7 @@ import {
 } from './vfs'
 import {
     HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_METHOD_NOT_ALLOWED, HTTP_NO_CONTENT, HTTP_NOT_FOUND, HTTP_SERVER_ERROR,
-    enforceFinal, pathEncode, prefix
+    enforceFinal, pathEncode, prefix, getOrSet
 } from './cross'
 import { PassThrough } from 'stream'
 import { mkdir, rm, stat } from 'fs/promises'
@@ -12,6 +12,8 @@ import { isValidFileName } from './misc'
 import { basename, dirname, join } from 'path'
 import { requestedRename } from './frontEndApis'
 import { randomUUID } from 'node:crypto'
+import { IS_MAC } from './const'
+import { exec } from 'child_process'
 
 const TOKEN_HEADER = 'lock-token'
 
@@ -92,6 +94,8 @@ export async function handledWebdav(ctx: Koa.Context) {
         clearTimeout(lock.timeout)
         locks.delete(path)
         ctx.set(TOKEN_HEADER, x)
+        if (IS_MAC)
+            urlToNode(path, ctx).then(x => x?.source && dotClean(dirname(x.source)))
         return ctx.status = HTTP_NO_CONTENT
     }
     if (ctx.method === 'LOCK') {
@@ -154,8 +158,6 @@ export async function handledWebdav(ctx: Koa.Context) {
               </response>
             `)
         }
-
-        //isWebDav(Boolean(ctx.get('user-agent').match(/webdav/i)))
     }
 
     function isWebDav(x=true) {
@@ -165,4 +167,18 @@ export async function handledWebdav(ctx: Koa.Context) {
         ctx.set('WWW-Authenticate', `Basic realm="${pathEncode(path)}"`)
     }
 
+}
+
+// Finder will upload special attributes as files with name ._* that can be merged using system utility "dot_clean"
+const cleaners = new Map()
+function dotClean(path: string) {
+    getOrSet(cleaners, path, () => setTimeout(() => {
+        try { exec('dot_clean .', { cwd: path }, (err, out) => done(err || out)) }
+        catch (e) { done(e) }
+
+        function done(log: any) {
+            console.debug('dot_clean', path, log)
+            cleaners.delete(path)
+        }
+    }, 10_000))
 }
