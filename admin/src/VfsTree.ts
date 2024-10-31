@@ -88,7 +88,6 @@ export default function VfsTree({ id2node, statusApi }:{ id2node: Map<string, Vf
                         )
                 })()
             ),
-            key: name,
             collapseIcon: h(ExpandMore, {
                 onClick(ev) {
                     setExpanded(was => was?.filter(x => x !== id) )
@@ -105,14 +104,14 @@ export default function VfsTree({ id2node, statusApi }:{ id2node: Map<string, Vf
             }),
             nodeId: id
         }, isRoot && !node.children?.length ? h(TreeItem, { nodeId: '?', label: h('i', {}, "nothing here") })
-            : node.children?.map(x => h(Branch, { node: x})) )
+            : node.children?.map(x => h(Branch, { key: x.id, node: x })) )
 
         function isRestricted(who: Who | undefined) {
             return who !== undefined && who !== true
         }
     }, [setExpanded])
     const ref = useRef<HTMLUListElement>()
-    const [expandAll, toggleBtn] = useToggleButton("Collapse all", "Expand all", exp => ({ icon: exp ? UnfoldLess : UnfoldMore, sx: {} }))
+    const [expandAll, toggleBtn] = useToggleButton("Collapse all", "Expand all", exp => ({ icon: exp ? UnfoldLess : UnfoldMore, sx: { rotate: exp ? 0 : '180deg' } }))
     useEffectOnce(() => setExpanded(expandAll ? Array.from(id2node.keys()) : ['/']), [expandAll])
     // be sure selected element is visible
     const treeId = 'vfs'
