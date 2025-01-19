@@ -77,7 +77,7 @@ export async function handledWebdav(ctx: Koa.Context) {
             dest = dest.slice(dest.indexOf('/', i + 2))
         if (dirname(path) === dirname(dest)) // rename
             try {
-                await requestedRename(node, basename(dest), ctx)
+                await requestedRename(node, decodeURIComponent(basename(dest)), ctx)
                 return ctx.status = HTTP_CREATED
             }
             catch(e:any) {
