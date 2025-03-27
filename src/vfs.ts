@@ -409,7 +409,8 @@ export function parentMaskApplier(parent: VfsNode) {
             k = k.slice(0, i) // remove
             return type === 'folders'
         })()
-        k = k.startsWith('**/') ? k.slice(3) : !k.includes('/') ? k : '' // ** globstar matches also zero subfolders, so this mask must be applied here too
+        const m = /^(!?)\*\*\//.exec(k) // ** globstar matches also zero subfolders, so this mask must be applied here too
+        k = m ? m[1] + k.slice(m[0].length) : !k.includes('/') ? k : ''
         return k && { mods, matcher: makeMatcher(k), mustBeFolder }
     }))
     return async (item: VfsNode, virtualBasename=basename(getNodeName(item))) => { // we basename for depth>0
